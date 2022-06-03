@@ -20,7 +20,7 @@ import functools
 import math
 import os
 import time
-from typing import Callable, Sequence, Mapping, Tuple, Type, Optional
+from typing import Callable, Sequence, Mapping, Type, Optional
 
 # Set Linen to add profiling information when constructing Modules.
 # Must be set before flax imports.
@@ -116,7 +116,10 @@ def train(
     run_eval_before_training: bool = False,
     train_state_initializer_cls: Type[
         utils.TrainStateInitializer] = utils.TrainStateInitializer,
-    use_gda: bool = False) -> Tuple[int, train_state_lib.TrainState]:
+    use_gda: bool = False,
+    verify_matching_vocabs_fn: Optional[
+        Callable[[utils.DatasetConfig, models.BaseTransformerModel],
+                 None]] = utils.verify_matching_vocabs):
   """Train function.
 
   Args:
@@ -169,6 +172,8 @@ def train(
     train_state_initializer_cls: t5x.utils.TrainStateInitializer class for
       initializing partitioned TrainState from checkpoints or scratch.
     use_gda: if True, uses GlobalDeviceArray. Experimental feature.
+    verify_matching_vocabs_fn: Function to validate whether the task vocabulary
+      matches the model vocabulary. Should raise an exception on error.
 
   Returns:
     The tuple of (last_step, last_train_state).
@@ -234,14 +239,8 @@ def train(
   num_ds_shards = data_layout.num_shards
 
   def _verify_matching_vocabs(cfg: utils.DatasetConfig):
-    ds_vocabs = utils.get_vocabulary(cfg)
-    if (ds_vocabs[0] != model.input_vocabulary or
-        ds_vocabs[1] != model.output_vocabulary):
-      raise ValueError(f'Model and Task vocabularies do not match:\n'
-                       f'  task={cfg.mixture_or_task_name}\n'
-                       f'  ds_vocabs=({ds_vocabs[0]}, {ds_vocabs[1]})\n'
-                       f'  model.input_vocabulary={model.input_vocabulary}\n'
-                       f'  model.output_vocabulary={model.output_vocabulary}\n')
+    if verify_matching_vocabs_fn is not None:
+      verify_matching_vocabs_fn(cfg, model)
 
   _verify_matching_vocabs(train_dataset_cfg)
 
