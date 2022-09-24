@@ -62,7 +62,7 @@ class EncoderLayer(nn.Module):
         dtype=cfg.dtype, name='pre_attention_layer_norm')(
             inputs)
     # [batch, length, emb_dim] -> [batch, length, emb_dim]
-    x = layers.MultiHeadDotProductAttention(
+    out_sa = layers.MultiHeadDotProductAttention(
         num_heads=cfg.num_heads,
         dtype=cfg.dtype,
         head_dim=cfg.head_dim,
@@ -70,25 +70,22 @@ class EncoderLayer(nn.Module):
         float32_logits=cfg.float32_attention_logits,
         name='attention')(
             x, x, encoder_mask, encoder_bias, deterministic=deterministic)
-    x = nn.Dropout(
-        rate=cfg.dropout_rate, broadcast_dims=(-2,))(
-            x, deterministic=deterministic)
-    x = x + inputs
 
     # MLP block.
-    y = layers.LayerNorm(dtype=cfg.dtype, name='pre_mlp_layer_norm')(x)
     # [batch, length, emb_dim] -> [batch, length, emb_dim]
-    y = layers.MlpBlock(
+    out_mlp = layers.MlpBlock(
         intermediate_dim=cfg.mlp_dim,
         activations=cfg.mlp_activations,
         intermediate_dropout_rate=cfg.dropout_rate,
         dtype=cfg.dtype,
         name='mlp',
-    )(y, deterministic=deterministic)
+    )(x, deterministic=deterministic)
+    
+    y = out_sa + out_mlp
     y = nn.Dropout(
         rate=cfg.dropout_rate, broadcast_dims=(-2,))(
             y, deterministic=deterministic)
-    y = y + x
+    y = y + inputs
 
     return y
 
@@ -119,7 +116,7 @@ class DecoderLayer(nn.Module):
             inputs)
 
     # Self-attention block
-    x = layers.MultiHeadDotProductAttention(
+    out_sa = layers.MultiHeadDotProductAttention(
         num_heads=cfg.num_heads,
         dtype=cfg.dtype,
         head_dim=cfg.head_dim,
@@ -132,43 +129,33 @@ class DecoderLayer(nn.Module):
             decoder_bias,
             deterministic=deterministic,
             decode=decode)
-    x = nn.Dropout(
-        rate=cfg.dropout_rate, broadcast_dims=(-2,))(
-            x, deterministic=deterministic)
-    x = x + inputs
 
     # Encoder-Decoder block.
-    y = layers.LayerNorm(
-        dtype=cfg.dtype, name='pre_cross_attention_layer_norm')(
-            x)
-    y = layers.MultiHeadDotProductAttention(
+    out_ca = layers.MultiHeadDotProductAttention(
         num_heads=cfg.num_heads,
         dtype=cfg.dtype,
         head_dim=cfg.head_dim,
         dropout_rate=cfg.dropout_rate,
         float32_logits=cfg.float32_attention_logits,
         name='encoder_decoder_attention')(
-            y, encoded, encoder_decoder_mask, deterministic=deterministic)
-    y = nn.Dropout(
-        rate=cfg.dropout_rate, broadcast_dims=(-2,))(
-            y, deterministic=deterministic)
-    y = y + x
+            x, encoded, encoder_decoder_mask, deterministic=deterministic)
 
     # MLP block.
-    z = layers.LayerNorm(dtype=cfg.dtype, name='pre_mlp_layer_norm')(y)
-    z = layers.MlpBlock(
+    out_mlp = layers.MlpBlock(
         intermediate_dim=cfg.mlp_dim,
         activations=cfg.mlp_activations,
         intermediate_dropout_rate=cfg.dropout_rate,
         dtype=cfg.dtype,
         name='mlp',
-    )(z, deterministic=deterministic)
-    z = nn.Dropout(
+    )(x, deterministic=deterministic)
+    
+    y = out_sa + out_ca + out_mlp
+    y = nn.Dropout(
         rate=cfg.dropout_rate, broadcast_dims=(-2,))(
-            z, deterministic=deterministic)
-    z = z + y
+            y, deterministic=deterministic)
+    y = y + inputs
 
-    return z
+    return y
 
 
 class Encoder(nn.Module):
